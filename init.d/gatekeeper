@@ -23,6 +23,13 @@ is_nighttime() {
 start_service() {
     logger -t gatekeeper "Starting gatekeeper service"
 
+    # GL.iNet firmware ships nodogsplash enabled on port 2050 — same port we use.
+    # Stop and disable it so it can't win the race on boot.
+    if [ -x /etc/init.d/nodogsplash ]; then
+        /etc/init.d/nodogsplash stop 2>/dev/null
+        /etc/init.d/nodogsplash disable 2>/dev/null
+    fi
+
     procd_open_instance
 
     # Pass API key as environment variable

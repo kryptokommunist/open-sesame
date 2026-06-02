@@ -22,6 +22,16 @@ ssh root@192.168.0.2 "opkg install python3-light conntrack"
 ssh root@192.168.0.2 "which python3 && which conntrack"
 ```
 
+### Disable nodogsplash
+
+GL.iNet stock firmware ships `nodogsplash` enabled, and it listens on port 2050 — the same port the gatekeeper server uses. If left enabled, gatekeeper will crash-loop on every boot with `OSError: [Errno 98] Address in use`. Disable it before deploying:
+
+```bash
+ssh root@192.168.0.2 "/etc/init.d/nodogsplash stop && /etc/init.d/nodogsplash disable"
+```
+
+The init script in Step 4 also runs this on each start as a safety net, but doing it here keeps the first boot clean.
+
 ## Step 2: Deploy Gatekeeper Script
 
 ```bash
@@ -71,6 +81,13 @@ is_nighttime() {
 
 start_service() {
     logger -t gatekeeper "Starting gatekeeper service"
+
+    # GL.iNet firmware ships nodogsplash on port 2050 — stop and disable it.
+    if [ -x /etc/init.d/nodogsplash ]; then
+        /etc/init.d/nodogsplash stop 2>/dev/null
+        /etc/init.d/nodogsplash disable 2>/dev/null
+    fi
+
     procd_open_instance
     procd_set_param env GEMINI_API_KEY="$GEMINI_API_KEY"
 
@@ -239,6 +256,28 @@ ssh root@192.168.0.2 "netstat -tlnp | grep 2050"
 # Restart service
 ssh root@192.168.0.2 "/etc/init.d/gatekeeper restart"
 ```
+
+### Crash loop with `OSError: [Errno 98] Address in use`
+
+Port 2050 is held by another process — almost always `nodogsplash` from the GL.iNet stock firmware (it has the same boot priority and can win the race). Symptom in `logread`:
+
+```
+daemon.err python3: OSError: [Errno 98] Address in use
+daemon.info procd: Instance gatekeeper::instance1 s in a crash loop
+```
+
+Fix:
+
+```bash
+# Find what's holding the port
+ssh root@192.168.0.2 "netstat -tlnp | grep 2050"
+
+# Stop and disable nodogsplash, then restart gatekeeper
+ssh root@192.168.0.2 "/etc/init.d/nodogsplash stop && /etc/init.d/nodogsplash disable"
+ssh root@192.168.0.2 "/etc/init.d/gatekeeper restart"
+```
+
+The init script in this repo runs that stop+disable on every start, so a fresh deploy will not hit this. Older deploys without that guard need the manual fix above once.
 
 ### View all logs
 
